@@ -307,6 +307,98 @@ input[type="text"].custom-line:focus { border-color: var(--accent); }
   margin-top: 8px;
 }
 
+/* ── canvas wrapper (preview + download button stacked) ── */
+.canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* dl-btn below canvas – hidden by default, shown on mobile */
+.dl-btn-below {
+  display: none;
+  font-family: 'Noto Serif TC', sans-serif;
+  font-size: 14px;
+  padding: 11px 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s;
+}
+.dl-btn-below:hover    { background: #8DA0BE; }
+.dl-btn-below:disabled { background: #C0CDD8; cursor: default; }
+
+/* ── RWD ── */
+@media (max-width: 700px) {
+  body {
+    padding: 16px 16px 40px;
+    gap: 14px;
+  }
+
+  .app-body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+    width: 100%;
+  }
+
+  .left-panel {
+    width: 100%;
+  }
+
+  /* scale the 600×600 canvas to fit mobile width */
+  .canvas {
+    width: 100%;
+    max-width: 600px;
+    aspect-ratio: 1 / 1;
+    height: auto;
+  }
+
+  /* scale content-area proportionally */
+  .content-area {
+    top: 28.3%;   /* 170/600 */
+    height: 69%;  /* 414/600 */
+  }
+
+  .multi-line,
+  .single-date,
+  .single-line2,
+  .single-line3 {
+    font-size: clamp(14px, 4.5vw, 28px);
+  }
+
+  /* show the button below the canvas on mobile */
+  .dl-btn-below { display: block; }
+  /* hide the one inside left-panel on mobile */
+  .dl-btn-side  { display: none; }
+
+  /* ── Form B date inputs: fix width + align left ── */
+  #form-B .form-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  #form-B .form-group .form-label {
+    min-width: 72px;
+    flex-shrink: 0;
+    text-align: left;
+  }
+  #form-B .form-group input[type="date"] {
+    flex: 1;
+    width: auto;
+  }
+  /* session & custom text rows stay column */
+  #form-B .form-group:has(.session-checks),
+  #form-B .form-group:has(.custom-line) {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* ── BG toggle ── */
 .bg-bar {
   display: flex;
@@ -423,12 +515,13 @@ input[type="text"].custom-line:focus { border-color: var(--accent); }
     </div>
 
     <div class="divider"></div>
-    <button class="dl-btn" id="dl-btn" onclick="downloadPNG()">↓ 下載 PNG</button>
+    <button class="dl-btn dl-btn-side" id="dl-btn" onclick="downloadPNG()">↓ 下載 PNG</button>
 
   </aside>
 
   <!-- ════ CANVAS ════ -->
   <main>
+    <div class="canvas-wrap">
     <div class="canvas" id="the-canvas">
 
       <img id="bg-img" style="display:none" alt="">
@@ -459,6 +552,8 @@ input[type="text"].custom-line:focus { border-color: var(--accent); }
 
       </div>
     </div>
+    <button class="dl-btn-below" id="dl-btn-below" onclick="downloadPNG()">↓ 下載 PNG</button>
+    </div><!-- /canvas-wrap -->
   </main>
 
 </div>
@@ -718,13 +813,14 @@ function injectDPI(pngBlob, dpi) {
 /* ──────────────────────────────────────────────
    Download PNG
 ────────────────────────────────────────────── */
+function setDlBtns(text, disabled) {
+  [$('dl-btn'), $('dl-btn-below')].forEach(b => { if (b) { b.textContent = text; b.disabled = disabled; } });
+}
+
 async function downloadPNG() {
-  const btn = $('dl-btn');
-  btn.textContent = '產生中…';
-  btn.disabled = true;
+  setDlBtns('產生中…', true);
   try {
-    const SCALE = 1.8;
-    const SIZE  = Math.round(600 * SCALE); // 1080
+    const SIZE = 1080;
 
     await document.fonts.ready;
 
@@ -736,6 +832,10 @@ async function downloadPNG() {
     ctx.drawImage($('bg-img'), 0, 0, SIZE, SIZE);
 
     const cvsRect = $('the-canvas').getBoundingClientRect();
+    // Dynamic scale: convert from actual screen pixels to 1080px output
+    const SCALE = SIZE / cvsRect.width;
+    // Font scale: always relative to the original 600px design size
+    const FS_SCALE = SIZE / 600;
 
     /* Draw text from a DOM element */
     function drawEl(id, color, fsPx, weight, lhRatio = 1.3, align = 'center') {
@@ -745,14 +845,17 @@ async function downloadPNG() {
       if (!text) return;
       const r = el.getBoundingClientRect();
       ctx.fillStyle    = color;
-      ctx.font         = `${weight} ${fsPx * SCALE}px 'Noto Serif TC', sans-serif`;
+      ctx.font         = `${weight} ${fsPx * FS_SCALE}px 'Noto Serif TC', sans-serif`;
       ctx.textAlign    = align;
       ctx.textBaseline = 'top';
       const px = align === 'center'
         ? (r.left - cvsRect.left + r.width / 2) * SCALE
         : (r.left - cvsRect.left) * SCALE;
-      const py   = (r.top - cvsRect.top) * SCALE;
-      const lh   = fsPx * lhRatio * SCALE;
+      // r.height is one line's rendered height (fontSize * lhRatio in screen px).
+      // The visual glyph sits in the middle of that; offset down by the top half-leading.
+      const topLeading = r.height * (1 - 1 / lhRatio) / 2;
+      const py   = (r.top - cvsRect.top + topLeading) * SCALE;
+      const lh   = fsPx * lhRatio * FS_SCALE;
       const maxW = r.width * SCALE;
       function wrapLines(txt) {
         const out = [];
@@ -780,12 +883,13 @@ async function downloadPNG() {
         if (!text) return;
         const lr = lineEl.getBoundingClientRect();
         ctx.fillStyle    = '#606161';
-        ctx.font         = `700 ${FS * SCALE}px 'Noto Serif TC', sans-serif`;
+        ctx.font         = `700 ${FS * FS_SCALE}px 'Noto Serif TC', sans-serif`;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'top';
+        const topLeadingA = lr.height * (1 - 1 / 1.5) / 2;
         ctx.fillText(text,
           (lr.left - cvsRect.left + lr.width / 2) * SCALE,
-          (lr.top  - cvsRect.top) * SCALE
+          (lr.top  - cvsRect.top + topLeadingA) * SCALE
         );
       });
     } else if (current === 'B') {
@@ -818,9 +922,9 @@ async function downloadPNG() {
   } catch (err) {
     console.error(err);
     alert('下載失敗：' + err.message);
+  } finally {
+    setDlBtns('↓ 下載 PNG', false);
   }
-  btn.textContent = '↓ 下載 PNG';
-  btn.disabled = false;
 }
 
 /* ──────────────────────────────────────────────
